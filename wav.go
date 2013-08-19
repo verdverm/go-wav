@@ -3,17 +3,15 @@ package wav
 import (
   bin "encoding/binary"
   "os"
-  "bufio"
   "fmt"
+  "bufio"
 )
 
 type WavData struct {
-  bChunkID [4]byte         // B
+  ChunkID [4]byte        // B
   ChunkSize uint32       // L
-  bFormat [4]byte          // B
+  Format [4]byte         // B
 
-  bSubchunk1ID [4]byte     // B
-  Subchunk1Size uint32   // L
   AudioFormat uint16     // L
   NumChannels uint16     // L
   SampleRate uint32      // L
@@ -21,37 +19,51 @@ type WavData struct {
   BlockAlign uint16      // L
   BitsPerSample uint16   // L
 
-  bSubchunk2ID [4]byte     // B
-  Subchunk2Size uint32   // L
-  data []byte             // L
+  Data []byte            // L
 }
 
 func ReadWavData( fn string ) (wav WavData) {
-  ftotal, err := os.OpenFile(fn, os.O_RDONLY, 0)
+  file, err := os.OpenFile(fn, os.O_RDONLY, 0)
   if err != nil {
     fmt.Printf( "Error opening\n" )
   }
-  file := bufio.NewReader(ftotal)
 
-  bin.Read( file, bin.BigEndian, &wav.bChunkID )
+  var SubchunkID [4]byte
+  var SubchunkSize uint32
+  var SubchunkStart int64
+
+  var file_buf *bufio.Reader
+
+  bin.Read( file, bin.BigEndian, &wav.ChunkID )
   bin.Read( file, bin.LittleEndian, &wav.ChunkSize )
-  bin.Read( file, bin.BigEndian, &wav.bFormat )
+  bin.Read( file, bin.BigEndian, &wav.Format )
 
-  bin.Read( file, bin.BigEndian, &wav.bSubchunk1ID )
-  bin.Read( file, bin.LittleEndian, &wav.Subchunk1Size )
-  bin.Read( file, bin.LittleEndian, &wav.AudioFormat )
-  bin.Read( file, bin.LittleEndian, &wav.NumChannels )
-  bin.Read( file, bin.LittleEndian, &wav.SampleRate )
-  bin.Read( file, bin.LittleEndian, &wav.ByteRate )
-  bin.Read( file, bin.LittleEndian, &wav.BlockAlign )
-  bin.Read( file, bin.LittleEndian, &wav.BitsPerSample )
+  for {
+    bin.Read( file, bin.BigEndian, &SubchunkID )
+    bin.Read( file, bin.LittleEndian, &SubchunkSize )
 
+    SubchunkStart, err = file.Seek(0, 1)
+    if err != nil {
+      fmt.Printf( "Error opening\n" )
+    }
+    file_buf = bufio.NewReader(file)
 
-  bin.Read( file, bin.BigEndian, &wav.bSubchunk2ID )
-  bin.Read( file, bin.LittleEndian, &wav.Subchunk2Size )
+    switch string(SubchunkID[:4]) {
+      case "fmt ":
+        bin.Read( file_buf, bin.LittleEndian, &wav.AudioFormat )
+        bin.Read( file_buf, bin.LittleEndian, &wav.NumChannels )
+        bin.Read( file_buf, bin.LittleEndian, &wav.SampleRate )
+        bin.Read( file_buf, bin.LittleEndian, &wav.ByteRate )
+        bin.Read( file_buf, bin.LittleEndian, &wav.BlockAlign )
+        bin.Read( file_buf, bin.LittleEndian, &wav.BitsPerSample )
 
-  wav.data = make( []byte, wav.Subchunk2Size )
-  bin.Read( file, bin.LittleEndian, &wav.data )
+      case "data":
+        wav.Data = make( []byte, SubchunkSize )
+        bin.Read( file_buf, bin.LittleEndian, &wav.Data )
+        return
+    }
+    file.Seek(SubchunkStart + int64(SubchunkSize), 0)
+  }
 
   /*
    *   fmt.Printf( "\n" )
